@@ -102,8 +102,8 @@ sed -i '/run_logged \$OMARCHY_INSTALL\/login\/alt-bootloaders\.sh/d' install/log
 # Remove pacman.sh from post-install/all.sh to prevent conflict with cachyos packages
 sed -i '/run_logged \$OMARCHY_INSTALL\/post-install\/pacman\.sh/d' install/post-install/all.sh
 
-# Update mise activation to support both bash and fish
-sed -i 's/omarchy-cmd-present mise && eval "\$(mise activate bash)"/if [ "\$SHELL" = "\/bin\/bash" ] \&\& command -v mise \&> \/dev\/null; then\n  eval "\$(mise activate bash)"\nelif [ "\$SHELL" = "\/bin\/fish" ] \&\& command -v mise \&> \/dev\/null; then\n  mise activate fish | source\nfi/' config/uwsm/env
+# Update mise activation to support bash, zsh, and fish
+sed -i 's/omarchy-cmd-present mise && eval "\$(mise activate bash)"/if [ "\$SHELL" = "\/bin\/bash" ] \&\& command -v mise \&> \/dev\/null; then\n  eval "\$(mise activate bash)"\nelif [ "\$SHELL" = "\/bin\/zsh" ] \&\& command -v mise \&> \/dev\/null; then\n  eval "\$(mise activate zsh)"\nelif [ "\$SHELL" = "\/bin\/fish" ] \&\& command -v mise \&> \/dev\/null; then\n  mise activate fish | source\nfi/' config/uwsm/env
 
 # Copy omarchy installation files to ~/.local/share/omarchy
 mkdir -p ~/.local/share/omarchy
@@ -121,16 +121,67 @@ echo " 5. Removed plymouth.sh from install.sh to avoid conflict with CachyOS log
 echo " 6. Removed limine-snapper.sh from install.sh to avoid conflict with CachyOS boot loader installation."
 echo " 7. Removed alt-bootloaders.sh from install.sh to avoid conflict with CachyOS boot loader installation."
 echo " 8. Removed /etc/sddm.conf to avoid conflict with Omarchy UWSM session autologin."
+echo " 9. Added zsh support to mise activation (bash/zsh/fish)."
 echo ""
-echo "IMPORTANT: If you installed CachyOS without a deskop environment, you will not have a display manager installed." 
+echo "IMPORTANT: If you installed CachyOS without a deskop environment, you will not have a display manager installed."
 echo "If this is the case, you will need to run the following command after this installation script is complete:"
-echo " 1.) ~/.local/share/omarchy/install/login/plymouth.sh"  
+echo " 1.) ~/.local/share/omarchy/install/login/plymouth.sh"
 echo ""
-echo "The aboves script will modify your boot to start Omarchy's Hyprland desktop automatically." 
+echo "The aboves script will modify your boot to start Omarchy's Hyprland desktop automatically."
 echo ""
 echo "Press Enter to begin the installation of Omarchy..."
 read -r
 
-# Run the modified install.sh script 
+# Install zsh and plugins before Omarchy install runs
+echo "Installing zsh and plugins..."
+yay -S --needed --noconfirm zsh zsh-autosuggestions zsh-syntax-highlighting
+
+# Run the modified install.sh script
 chmod +x install.sh
 ./install.sh
+
+# --- User-specific post-install steps ---
+echo ""
+echo "Running user-specific post-install steps..."
+
+# Install user tools
+echo "Installing VSCode, Azure toolchain, and Python tools..."
+yay -S --needed --noconfirm visual-studio-code-bin azure-cli kubectl-bin helm kubelogin-bin gnome-keyring
+
+# uv (Python package manager)
+echo "Installing uv..."
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Python via mise
+echo "Installing Python 3.13 via mise..."
+mise use -g python@3.13
+
+# Azure CLI extensions
+echo "Installing Azure CLI extensions..."
+az extension add --name azure-devops
+az extension add --name ssh
+
+# Add user to network group (required for Azure VPN polkit rules)
+echo "Adding $USER to network group..."
+sudo usermod -aG network "$USER"
+
+# Set zsh as login shell
+echo "Setting zsh as login shell..."
+chsh -s /bin/zsh
+
+# Write ~/.zshrc
+echo "Writing ~/.zshrc..."
+cat >> ~/.zshrc <<'ZSHRC'
+source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
+source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+eval "$(mise activate zsh)"
+eval "$(zoxide init zsh)"
+eval "$(starship init zsh)"
+ZSHRC
+
+echo ""
+echo "All done! Next steps after reboot:"
+echo " 1. Sign into 1Password:  op signin"
+echo " 2. Sign into Azure CLI:  az login"
+echo " 3. Import VPN profile from ~/Downloads/ in the Azure VPN Client"
+echo " 4. Verify SDDM PAM has keyring lines: grep keyring /etc/pam.d/sddm"
